@@ -1,1 +1,0 @@
-The paper's figures
