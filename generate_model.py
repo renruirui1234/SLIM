@@ -7,7 +7,7 @@ from mindxlib import utils
 from mindxlib.ruleset import RuleSetImb
 import shutil
 import argparse
-
+from sklearn.metrics import cohen_kappa_score
 
 
 
@@ -139,20 +139,66 @@ class SLIM():
             binarizers[service] = binarizer
         return binarizers
 
+    def evaluate_metric(self, acc_service: np.ndarray, name: str, rule_scores: dict, service: str,result: dict) -> np.ndarray:
+
+        index_train = pd.read_csv('./train_data.csv')
+        index_train = index_train['serviceName'].unique()
+        index_service_transfer = {}
+        for i in range(len(index_train)):
+            index_service_transfer[index_train[i]] = i
+        y_true = []
+        y_pred = []
+
+
+        with open('./result-fault.txt', 'a') as f:
+            f.write(name + ':\n')
+            f.close()
+        # fault localization module--fault_type
+        rule_scores_list = sorted(rule_scores.items(), key=lambda x: x[1], reverse=True)
+        index = 1
+        with open('./result-fault.txt', 'a') as f:
+            for rule in rule_scores_list[:5]:
+                f.write('top' + str(index) + ' :' + rule[0] + '-num:' + str(rule[1]) + '\n')
+                index += 1
+            f.write('\n')
+        f.close()
+
+        with open('./result-service.txt', 'a') as f:
+            f.write(name + ':\n')
+            f.close()
+        # fault localization module--service
+        index = 1
+        with open('./result-service.txt', 'a') as f:
+            for rule in result[:5]:
+                if index == 1:
+                    y_pred=index_service_transfer[rule[0]]
+                    y_true=index_service_transfer[service]
+                if rule[0] == service:
+                    acc_service[index - 1:] += 1
+                f.write('top' + str(index) + ' :' + rule[0] + '-num:' + str(rule[1]) + '\n')
+                index += 1
+            f.write('\n')
+
+        f.close()
+        print('finishing the diagnosis of ' + name)
+
+        return acc_service,y_pred,y_true
+
+
 
     def test_model(self):
         binarizers = self.binarizer_load()
         rule_scores = {}
         total = 0
         acc_service = np.zeros(5)
+        y_preds=[]
+        y_trues=[]
         with open('./model/model.json', 'r', encoding='utf-8') as f:
             dict = json.load(f)
         for root, dirs, files in os.walk("./raw_data/test/", topdown=False):
             for name in files:
                 serviceName = self.transfer_test_data_unrule(root + name, list(dict.keys()))
-                with open('./result-service.txt', 'a') as f:
-                    f.write(name + ':\n')
-                    f.close()
+
                 service_dict = {}
                 for service in os.listdir("./test_data/"):
                     # for file_name in files_list:
@@ -176,46 +222,20 @@ class SLIM():
 
                     rule_scores[service] = np.sum(y_hat)
 
-
-
                 result = result.to_dict()
                 result = sorted(result.items(), key=lambda x: x[1], reverse=True)
-
-
                 service = name.split('-')[2]
                 service = service.split('.')[0]
                 total += 1
+                acc_service,y_pred,y_true=self.evaluate_metric(acc_service, name, rule_scores, service,result)
+                y_preds.append(y_pred)
+                y_trues.append(y_true)
 
-
-
-
-
-                #fault localization module--fault_type
-                rule_scores_list = sorted(rule_scores.items(), key=lambda x: x[1], reverse=True)
-                index = 1
-                with open('./result-fault.txt', 'a') as f:
-                    for rule in rule_scores_list[:5]:
-                        f.write('top' + str(index) + ' :' + rule[0] + '-num:' + str(rule[1]) + '\n')
-                        index += 1
-                    f.write('\n')
-                f.close()
-
-
-
-                #fault localization module--service
-                index = 1
-                with open('./result-service.txt', 'a') as f:
-                    for rule in result[:5]:
-                        if rule[0] == service:
-                            acc_service[index - 1:] += 1
-                        f.write('top' + str(index) + ' :' + rule[0] + '-num:' + str(rule[1]) + '\n')
-                        index += 1
-                    f.write('\n')
-
-                f.close()
-                print('finishing the diagnosis of '+name)
 
         print('acc:' + str(acc_service / total))
+        print()
+        kappa_value = cohen_kappa_score(y_trues, y_preds)
+        print("kappa value is %f" % kappa_value)
 
 
 
